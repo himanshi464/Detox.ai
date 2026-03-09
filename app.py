@@ -86,7 +86,7 @@ if doc_file and st.button("Summarize Uploaded Document"):
         
         final_summary, engine = "", "Checking..."
 
-        # PRIMARY: Local Ollama (Unshakeable Default)
+        # PRIMARY: Local Ollama
         try:
             res = requests.post("http://localhost:11434/api/generate", 
                                 json={"model": "phi4-mini", "prompt": summary_prompt, "stream": False}, timeout=5)
@@ -102,7 +102,7 @@ if doc_file and st.button("Summarize Uploaded Document"):
                     final_summary = response.text
                     engine = "☁️ Detox Cloud (Fallback)"
                 except:
-                    final_summary, engine = "❌ Processing Offline.", "Error"
+                    final_summary, engine = "❌ Local engine offline & Cloud fallback failed.", "Error"
             else:
                 final_summary, engine = "❌ Local engine offline.", "Offline"
         
@@ -127,20 +127,21 @@ if user_prompt := st.chat_input("Enter directive..."):
             final_text = res.json()['response']
             engine_used = "🏠 Local Engine (Ollama)"
         except Exception:
-            # 2. SILENT SECONDARY: GEMINI (No Error UI)
+            # 2. SILENT SECONDARY: GEMINI (Fallback)
             if API_KEY:
                 try:
                     genai.configure(api_key=API_KEY)
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     payload = [f"{ZERO_TRAIN_TOKEN}\n\nTask: {safe_prompt}"]
-                    if up_img: payload.append(Image.open(up_img))
+                    if up_img:
+                        payload.append(Image.open(up_img))
                     
                     response = model.generate_content(payload)
                     final_text = response.text
                     engine_used = "☁️ Detox Cloud (Fallback)"
                 except Exception:
-                    final_text = "I am currently unable to process this request locally."
-                    engine_used = "Service Unavailable"
+                    final_text = "Service is currently unavailable locally and via cloud."
+                    engine_used = "Unavailable"
             else:
                 final_text = "Local engine is currently offline."
                 engine_used = "Offline"
@@ -150,7 +151,9 @@ if user_prompt := st.chat_input("Enter directive..."):
 
     with st.expander("🔍 Sovereign Logs"):
         st.warning(f"What the AI saw: {safe_prompt}")
-        if was_swapped: st.error("⚠️ Intent Neutralized by Firewall")
+        if was_swapped:
+            st.error("⚠️ Intent Neutralized by Firewall")
+
 
 
 
