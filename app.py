@@ -2,9 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 import re
-import random
 import requests
-import io
 import pandas as pd
 import PyPDF2
 import os
@@ -15,9 +13,7 @@ st.set_page_config(page_title="Detox.ai Sovereign OS", layout="wide")
 # --- 2. SOVEREIGN DOCUMENT PROCESSORS ---
 def process_pdf(file):
     reader = PyPDF2.PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
+    text = "".join(page.extract_text() for page in reader.pages)
     return text
 
 def process_csv(file):
@@ -88,17 +84,16 @@ if doc_file and st.button("Summarize Uploaded Document"):
         safe_doc_text = kavach.scrub_pii(raw_text[:4000])
         summary_prompt = f"Provide a concise summary of this data: {safe_doc_text}"
         
-        final_summary = ""
-        engine = "None"
+        final_summary, engine = "", "Checking..."
 
-        # PRIMARY: Local Ollama
+        # PRIMARY: Local Ollama (Unshakeable Default)
         try:
             res = requests.post("http://localhost:11434/api/generate", 
                                 json={"model": "phi4-mini", "prompt": summary_prompt, "stream": False}, timeout=5)
             final_summary = res.json()['response']
             engine = "🏠 Local Engine (Ollama)"
         except:
-            # SECONDARY: Silent Cloud Fallback
+            # SILENT SECONDARY: Cloud Fallback
             if API_KEY:
                 try:
                     genai.configure(api_key=API_KEY)
@@ -107,11 +102,9 @@ if doc_file and st.button("Summarize Uploaded Document"):
                     final_summary = response.text
                     engine = "☁️ Detox Cloud (Fallback)"
                 except:
-                    final_summary = "❌ Local engine offline & Cloud fallback failed."
-                    engine = "Error"
+                    final_summary, engine = "❌ Processing Offline.", "Error"
             else:
-                final_summary = "❌ Local engine offline and no Cloud API Key found."
-                engine = "Offline"
+                final_summary, engine = "❌ Local engine offline.", "Offline"
         
         st.write(kavach.restore_pii(final_summary))
         st.caption(f"Engine: {engine}")
@@ -121,10 +114,7 @@ if user_prompt := st.chat_input("Enter directive..."):
     with st.chat_message("user"):
         st.markdown(user_prompt)
 
-    final_text = ""
-    engine_used = "Default"
-    was_swapped = False
-
+    final_text, engine_used, was_swapped = "", "Awaiting Local...", False
     processed_prompt, was_swapped = kavach.intent_swapper(user_prompt) if firewall_active else (user_prompt, False)
     safe_prompt = kavach.scrub_pii(processed_prompt)
 
@@ -137,23 +127,22 @@ if user_prompt := st.chat_input("Enter directive..."):
             final_text = res.json()['response']
             engine_used = "🏠 Local Engine (Ollama)"
         except Exception:
-            # 2. SECONDARY: GEMINI (Silent Fallback)
+            # 2. SILENT SECONDARY: GEMINI (No Error UI)
             if API_KEY:
                 try:
                     genai.configure(api_key=API_KEY)
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     payload = [f"{ZERO_TRAIN_TOKEN}\n\nTask: {safe_prompt}"]
-                    if up_img:
-                        payload.append(Image.open(up_img))
+                    if up_img: payload.append(Image.open(up_img))
                     
                     response = model.generate_content(payload)
                     final_text = response.text
                     engine_used = "☁️ Detox Cloud (Fallback)"
                 except Exception:
-                    final_text = "I am currently unable to process this request locally or via cloud."
+                    final_text = "I am currently unable to process this request locally."
                     engine_used = "Service Unavailable"
             else:
-                final_text = "Local engine is unavailable and no cloud backup is configured."
+                final_text = "Local engine is currently offline."
                 engine_used = "Offline"
 
         st.markdown(kavach.restore_pii(final_text))
@@ -161,8 +150,8 @@ if user_prompt := st.chat_input("Enter directive..."):
 
     with st.expander("🔍 Sovereign Logs"):
         st.warning(f"What the AI saw: {safe_prompt}")
-        if was_swapped:
-            st.error("⚠️ Intent Neutralized by Firewall")
+        if was_swapped: st.error("⚠️ Intent Neutralized by Firewall")
+
 
 
 
