@@ -108,39 +108,59 @@ if doc_file and st.button("Summarize Uploaded Document"):
         st.write(kavach.restore_pii(final_summary))
         st.caption(f"Engine: {engine}")
 
-# --- 7. MAIN LOGIC: CHAT & AUTO-FAILOVER ---
+# --- 6. MAIN LOGIC: CHAT & AUTO-FAILOVER ---
 if user_prompt := st.chat_input("Enter directive..."):
     with st.chat_message("user"):
         st.markdown(user_prompt)
+
+    # Initialize variables to avoid NameError
+    final_text = ""
+    engine_used = "None"
+    was_swapped = False
 
     processed_prompt, was_swapped = kavach.intent_swapper(user_prompt) if firewall_active else (user_prompt, False)
     safe_prompt = kavach.scrub_pii(processed_prompt)
 
     with st.chat_message("assistant"):
-        # Local-First for Demo Speed
+        # 1. TRY LOCAL FIRST (Ollama)
         try:
             res = requests.post("http://localhost:11434/api/generate", 
-                                json={"model": "phi4-mini", "prompt": safe_prompt, "stream": False}, timeout=2)
+                                json={"model": "phi4-mini", "prompt": safe_prompt, "stream": False}, 
+                                timeout=2)
             final_text = res.json()['response']
             engine_used = "🏠 Local Engine (Ollama)"
-        except:
-            try:
-                genai.configure(api_key=API_KEY)
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                payload = [f"{ZERO_TRAIN_TOKEN}\n\nTask: {safe_prompt}"]
-                if up_img: payload.append(Image.open(up_img))
-                response = model.generate_content(payload)
-                final_text = response.text
-                engine_used = "☁️ Detox Cloud (Gemini)"
-            except Exception as e:
-                final_text = f"❌ Error: {e}"
+        except Exception:
+            # 2. FALLBACK TO CLOUD (Gemini)
+            if API_KEY:
+                try:
+                    genai.configure(api_key=API_KEY)
+                    # Correct model name for 2026 is 'gemini-1.5-flash'
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    
+                    payload = [f"{ZERO_TRAIN_TOKEN}\n\nTask: {safe_prompt}"]
+                    if up_img:
+                        payload.append(Image.open(up_img))
+                    
+                    response = model.generate_content(payload)
+                    final_text = response.text
+                    engine_used = "☁️ Detox Cloud (Gemini)"
+                except Exception as e:
+                    final_text = f"❌ Cloud Error: {str(e)}"
+                    engine_used = "Error"
+            else:
+                final_text = "❌ No API Key found and Local Engine is offline."
+                engine_used = "Offline"
 
+        # Display results
         st.markdown(kavach.restore_pii(final_text))
-        st.caption(f"Engine: {engine_used}")
+        st.caption(f"Engine: {engine_used} | Protected by Detox.ai")
 
+    # --- 7. LIVE LOGS ---
     with st.expander("🔍 Sovereign Logs"):
-        st.warning(f"AI Input: {safe_prompt}")
-        if was_swapped: st.error("⚠️ Intent Neutralized")
+        st.warning(f"What the AI saw: {safe_prompt}")
+        if was_swapped:
+            st.error("⚠️ Intent Neutralized by Firewall")
+
 
 
 
