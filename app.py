@@ -10,7 +10,7 @@ import os
 # --- 1. PAGE CONFIG ---
 st.set_page_config(page_title="Detox.ai Sovereign OS", layout="wide")
 
-# --- 2. SOVEREIGN DOCUMENT PROCESSORS ---
+# --- 2. DOCUMENT PROCESSORS ---
 def process_pdf(file):
     try:
         reader = PyPDF2.PdfReader(file)
@@ -24,15 +24,16 @@ def process_csv(file):
     except: return "Error reading CSV."
 
 # --- 3. CONFIG & SECURE KEY LOADING ---
+# Ensure you add GEMINI_API_KEY to Streamlit Secrets for cloud deployment
 API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 ZERO_TRAIN_TOKEN = "[POLICY: 0x7FF32] DE-IDENTIFIED SESSION: DO NOT TRAIN."
 
-# --- 4. THE SOVEREIGN PRIVACY ENGINE ---
+# --- 4. PRIVACY ENGINE ---
 class KavachEngine:
     def __init__(self):
         if 'vault' not in st.session_state: st.session_state.vault = {}
     def scrub_pii(self, text):
-        patterns = {r'\b\d{4}-\d{4}-\d{4}\b': "AADHAAR_ID", r'\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b': "PAN_CARD", r'\b[6-9]\d{9}\b': "MOBILE_NUM"}
+        patterns = {r'\b\d{4}-\d{4}-\d{4}\b': "AADHAAR_ID", r'\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b': "PAN_CARD"}
         for pattern, label in patterns.items():
             matches = re.findall(pattern, text)
             for i, val in enumerate(matches):
@@ -44,8 +45,8 @@ class KavachEngine:
         for dummy, real in st.session_state.vault.items(): ai_response = ai_response.replace(dummy, real)
         return ai_response
     def intent_swapper(self, prompt):
-        if any(k in prompt.lower() for k in ["tax evade", "hide money", "illegal"]):
-            return "How can I manage my financial assets within legal frameworks?", True
+        if any(k in prompt.lower() for k in ["tax evade", "illegal"]):
+            return "How can I manage my assets within legal frameworks?", True
         return prompt, False
 
 kavach = KavachEngine()
@@ -60,7 +61,7 @@ with st.sidebar:
     firewall_active = st.toggle("Enable Intent-Swapper", value=True)
     up_img = st.file_uploader("Upload Identity Image", type=['jpg', 'jpeg', 'png'])
 
-# --- 6. CHAT LOGIC ---
+# --- 6. CHAT LOGIC (Ollama Priority) ---
 if user_prompt := st.chat_input("Enter directive..."):
     with st.chat_message("user"): st.markdown(user_prompt)
     
@@ -70,14 +71,14 @@ if user_prompt := st.chat_input("Enter directive..."):
     with st.chat_message("assistant"):
         final_text, engine_used = "", "Offline"
         
-        # 1. PRIMARY: Try Local Ollama ONLY if on localhost
+        # 1. PRIMARY: Try Local Ollama (Timeout set to 2s to prevent hanging)
         try:
             res = requests.post("http://localhost:11434/api/generate", 
-                                json={"model": "phi4-mini", "prompt": safe_prompt, "stream": False}, timeout=1)
+                                json={"model": "phi4-mini", "prompt": safe_prompt, "stream": False}, timeout=2)
             final_text = res.json()['response']
             engine_used = "🏠 Local Engine (Ollama)"
         except:
-            # 2. SECONDARY: Gemini Cloud (SILENT)
+            # 2. SECONDARY: Gemini Cloud (SILENT FAIL)
             if API_KEY:
                 try:
                     genai.configure(api_key=API_KEY)
@@ -90,10 +91,14 @@ if user_prompt := st.chat_input("Enter directive..."):
                 except:
                     final_text = "System is currently maintaining air-gap protocols (Offline)."
             else:
-                final_text = "Engine connection lost."
+                final_text = "System is currently maintaining air-gap protocols (Offline)."
 
         st.markdown(kavach.restore_pii(final_text))
         st.caption(f"Inference: {engine_used} | Protected by Detox.ai")
+
+    with st.expander("🔍 Sovereign Logs"):
+        st.warning(f"Internal View: {safe_prompt}")
+
 
 
 
