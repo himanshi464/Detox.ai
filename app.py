@@ -9,7 +9,7 @@ import pandas as pd
 import PyPDF2
 import os
 
-# --- 1. PAGE CONFIG (Must be the very first Streamlit command) ---
+# --- 1. PAGE CONFIG ---
 st.set_page_config(page_title="Detox.ai Sovereign OS", layout="wide")
 
 # --- 2. SOVEREIGN DOCUMENT PROCESSORS ---
@@ -25,7 +25,6 @@ def process_csv(file):
     return df.head(10).to_string()
 
 # --- 3. CONFIG & SECURE KEY LOADING ---
-# Silent loading to avoid red error boxes at the top
 API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 ZERO_TRAIN_TOKEN = """
@@ -89,77 +88,82 @@ if doc_file and st.button("Summarize Uploaded Document"):
         safe_doc_text = kavach.scrub_pii(raw_text[:4000])
         summary_prompt = f"Provide a concise summary of this data: {safe_doc_text}"
         
-        # Local-First attempt for speed
+        final_summary = ""
+        engine = "None"
+
+        # PRIMARY: Local Ollama
         try:
             res = requests.post("http://localhost:11434/api/generate", 
-                                json={"model": "phi4-mini", "prompt": summary_prompt, "stream": False}, timeout=2)
+                                json={"model": "phi4-mini", "prompt": summary_prompt, "stream": False}, timeout=5)
             final_summary = res.json()['response']
             engine = "🏠 Local Engine (Ollama)"
         except:
+            # SECONDARY: Silent Cloud Fallback
             if API_KEY:
-                genai.configure(api_key=API_KEY)
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content([f"{ZERO_TRAIN_TOKEN}\n{summary_prompt}"])
-                final_summary = response.text
-                engine = "☁️ Detox Cloud"
+                try:
+                    genai.configure(api_key=API_KEY)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content([f"{ZERO_TRAIN_TOKEN}\n{summary_prompt}"])
+                    final_summary = response.text
+                    engine = "☁️ Detox Cloud (Fallback)"
+                except:
+                    final_summary = "❌ Local engine offline & Cloud fallback failed."
+                    engine = "Error"
             else:
-                final_summary = "❌ No engine available."
+                final_summary = "❌ Local engine offline and no Cloud API Key found."
+                engine = "Offline"
         
         st.write(kavach.restore_pii(final_summary))
         st.caption(f"Engine: {engine}")
 
-# --- 6. MAIN LOGIC: CHAT & AUTO-FAILOVER ---
+# --- 7. MAIN LOGIC: CHAT & AUTO-FAILOVER ---
 if user_prompt := st.chat_input("Enter directive..."):
     with st.chat_message("user"):
         st.markdown(user_prompt)
 
-    # Initialize variables to avoid NameError
     final_text = ""
-    engine_used = "None"
+    engine_used = "Default"
     was_swapped = False
 
     processed_prompt, was_swapped = kavach.intent_swapper(user_prompt) if firewall_active else (user_prompt, False)
     safe_prompt = kavach.scrub_pii(processed_prompt)
 
     with st.chat_message("assistant"):
-        # 1. TRY LOCAL FIRST (Ollama)
+        # 1. PRIMARY: OLLAMA (Local)
         try:
             res = requests.post("http://localhost:11434/api/generate", 
                                 json={"model": "phi4-mini", "prompt": safe_prompt, "stream": False}, 
-                                timeout=2)
+                                timeout=5)
             final_text = res.json()['response']
             engine_used = "🏠 Local Engine (Ollama)"
         except Exception:
-            # 2. FALLBACK TO CLOUD (Gemini)
+            # 2. SECONDARY: GEMINI (Silent Fallback)
             if API_KEY:
                 try:
                     genai.configure(api_key=API_KEY)
-                    # Correct model name for 2026 is 'gemini-1.5-flash'
                     model = genai.GenerativeModel('gemini-1.5-flash')
-                    
                     payload = [f"{ZERO_TRAIN_TOKEN}\n\nTask: {safe_prompt}"]
                     if up_img:
                         payload.append(Image.open(up_img))
                     
                     response = model.generate_content(payload)
                     final_text = response.text
-                    engine_used = "☁️ Detox Cloud (Gemini)"
-                except Exception as e:
-                    final_text = f"❌ Cloud Error: {str(e)}"
-                    engine_used = "Error"
+                    engine_used = "☁️ Detox Cloud (Fallback)"
+                except Exception:
+                    final_text = "I am currently unable to process this request locally or via cloud."
+                    engine_used = "Service Unavailable"
             else:
-                final_text = "❌ No API Key found and Local Engine is offline."
+                final_text = "Local engine is unavailable and no cloud backup is configured."
                 engine_used = "Offline"
 
-        # Display results
         st.markdown(kavach.restore_pii(final_text))
         st.caption(f"Engine: {engine_used} | Protected by Detox.ai")
 
-    # --- 7. LIVE LOGS ---
     with st.expander("🔍 Sovereign Logs"):
         st.warning(f"What the AI saw: {safe_prompt}")
         if was_swapped:
             st.error("⚠️ Intent Neutralized by Firewall")
+
 
 
 
