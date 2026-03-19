@@ -1,5 +1,4 @@
-🛡️ Detox.ai: Sovereign Data Shield
-India Innovates 2026 | Track: Cybersecurity
+🛡️ Detox.ai: Sovereign Data Shield| Track: Cybersecurity
 
 Detox.ai is a privacy-first middleware designed to "detoxify" user prompts by stripping out sensitive PII (Personally Identifiable Information) before they reach the cloud. It ensures that constitutional and ministerial data remains sovereign while still leveraging the power of Large Language Models.
 
